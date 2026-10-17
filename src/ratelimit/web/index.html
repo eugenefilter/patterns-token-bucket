@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Bucket Lab</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6a7385; --line: #e1e5ec;
+    --ok: #1f9d63; --ok-soft: rgba(31, 157, 99, .28);
+    --bad: #d8453f; --bad-soft: rgba(216, 69, 63, .30);
+    --warn: #d9962b; --accent: #3b6fe0; --ceiling: #4b5468;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c; --panel: #1b2029; --text: #e6e9f0; --muted: #98a1b3; --line: #2b3240;
+      --ok: #3ec98a; --ok-soft: rgba(62, 201, 138, .30);
+      --bad: #ff6b64; --bad-soft: rgba(255, 107, 100, .32);
+      --warn: #f0b04a; --accent: #7aa2ff; --ceiling: #aab3c5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
+
+  /* top bar: title, examples and the start buttons are always at hand */
+  .top { background: var(--bg); padding: 16px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  @media (min-width: 720px) { .top { position: sticky; top: 0; z-index: 5; } }
+  .title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .conn { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .actions .grow { flex: 1; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .error { color: var(--bad); font-size: 13px; margin-top: 8px; white-space: pre-line; }
+  .error:empty { display: none; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  h2 small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  h2 .push { margin-left: auto; display: flex; gap: 10px; align-items: center; font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+  label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; white-space: nowrap; }
+  input, select, button { font: inherit; color: var(--text); }
+  input[type=text], input[type=number], select {
+    width: 100%; height: 36px; padding: 0 9px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
+  }
+  select.small { width: auto; height: 30px; font-size: 13px; }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .rows { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: minmax(110px, 2fr) 100px 110px 180px auto 36px; gap: 8px; align-items: end; }
+  .row .chk { display: flex; align-items: center; gap: 6px; height: 36px; margin: 0; }
+  .row .chk input { width: auto; height: auto; }
+  @media (max-width: 760px) {
+    .row { grid-template-columns: 1fr 1fr; }
+    .row .chk { grid-column: 1 / 2; }
+  }
+
+  .btn { border: 1px solid var(--line); background: var(--panel); padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn.icon { padding: 0; width: 36px; height: 36px; }
+  .btn.chip { font-size: 13px; padding: 5px 10px; border-radius: 99px; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn:disabled:hover { border-color: var(--line); }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .kpi .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--muted); }
+  .kpi.ok .v, .a { color: var(--ok); }
+  .kpi.bad .v, .d { color: var(--bad); }
+  .kpi.wait .v, .w { color: var(--warn); }
+  .state { display: inline-flex; align-items: center; gap: 5px; }
+  .state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .state.run { color: var(--ok); } .state.run::before { background: var(--ok); }
+
+  /* client group */
+  .groups { display: grid; gap: 12px; }
+  .group { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; transition: border-color .15s, background-color .15s; }
+  .group.rejecting { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 7%, var(--bg)); }
+  .name { font-weight: 600; overflow-wrap: anywhere; }
+  .meta { font-size: 12px; color: var(--muted); margin-left: 8px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 10px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--muted); }
+  .sbar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
+  .sbar i { display: block; height: 100%; transition: width .15s linear; }
+  .sbar .g { background: var(--ok); } .sbar .y { background: var(--warn); } .sbar .r { background: var(--bad); }
+  .ceiling { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  details.clients { margin-top: 10px; }
+  details.clients summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .twrap { max-height: 320px; overflow: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 5px 10px; text-align: right; white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  tr + tr td { border-top: 1px solid var(--line); }
+  tr.rej td:first-child { color: var(--bad); }
+  .more { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+  .zero { color: var(--muted); }
+
+  /* request log */
+  .log { max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .log table td:nth-child(2) { text-align: left; }
+  .log table td:last-child { text-align: left; white-space: normal; }
+  .log table th:nth-child(2), .log table th:last-child { text-align: left; }
+  .tag { display: inline-block; min-width: 38px; text-align: center; border-radius: 5px; padding: 0 6px; font-weight: 600; font-size: 12px; }
+  .tag.s200 { background: var(--ok-soft); color: var(--ok); }
+  .tag.s429 { background: var(--bad-soft); color: var(--bad); }
+  .chk-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); margin: 0; }
+
+  canvas { width: 100%; height: 240px; display: block; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .legend i.dash { height: 0; border-top: 2px dashed var(--ceiling); border-radius: 0; vertical-align: 3px; }
+  details.how { color: var(--muted); font-size: 14px; }
+  details.how summary { cursor: pointer; color: var(--text); }
+  details.how p { margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="title">
+      <h1>Token Bucket Lab</h1>
+      <span class="sub">Every request goes through a real rate limiter on the server</span>
+      <span class="conn"><span class="dot" id="dot"></span><span id="connText">no connection</span></span>
+    </div>
+    <div class="actions">
+      <div class="presets"><span class="sub">Examples:</span><span class="presets" id="presets"></span></div>
+      <span class="grow"></span>
+      <button class="btn" id="stop" type="button" disabled>■ Stop</button>
+      <button class="btn primary" id="start" type="button">▶ Start</button>
+    </div>
+    <div class="error" id="error" role="alert"></div>
+    <div class="error" id="storageError"></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v" id="kTime">0.0 s</div><div class="l"><span class="state" id="kState">not started</span></div></div>
+    <div class="kpi"><div class="v" id="kSent">0</div><div class="l">requests sent</div></div>
+    <div class="kpi ok"><div class="v" id="kPassed">0</div><div class="l">passed</div></div>
+    <div class="kpi wait"><div class="v" id="kWaiting">0</div><div class="l">waiting in queue</div></div>
+    <div class="kpi bad"><div class="v" id="kRejected">0</div><div class="l">429 responses</div></div>
+  </div>
+
+  <section class="panel">
+    <h2>Clients</h2>
+    <div class="groups" id="groups"><div class="empty">Press “Start” and the clients with their requests will appear here.</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Requests per second (last 30 s)</h2>
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--ok)"></i>passed</span>
+      <span><i style="background:var(--bad)"></i>429</span>
+      <span><i class="dash"></i>steady-state limit</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Request log
+      <span class="push">
+        <label class="chk-inline"><input type="checkbox" id="pause"> pause</label>
+        <select class="small" id="logGroup" aria-label="Group for the log"><option value="-1">All groups</option></select>
+      </span>
+    </h2>
+    <div class="log"><table>
+      <thead><tr><th>Time</th><th>Client</th><th>Response</th><th>Details</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table></div>
+    <div class="hint">Newest first. Under heavy load this is a sample of the latest requests, not all of them.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Limiter settings</h2>
+    <div class="settings">
+      <div>
+        <label for="capacity">Bucket size (capacity)</label>
+        <input type="number" id="capacity" min="1" max="1000" step="1" value="10">
+        <div class="hint">How many requests in a row pass as a burst</div>
+      </div>
+      <div>
+        <label for="refill">Refill, tokens/s</label>
+        <input type="number" id="refill" min="0.1" max="1000" step="0.1" value="2">
+        <div class="hint">How many requests per second the limiter lets through for each client</div>
+      </div>
+      <div>
+        <label for="backend">Storage</label>
+        <select id="backend">
+          <option value="memory">Process memory</option>
+          <option value="redis">Redis (Lua, atomic)</option>
+          <option value="redis-naive">Redis (naive, with a race)</option>
+        </select>
+        <div class="hint" id="backendHint"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Client settings</h2>
+    <div class="rows" id="rows"></div>
+    <div class="hint">“Requests/s” applies to each client in the group. “Shared key”: the whole group shares one bucket, like several servers using one API key.</div>
+    <div style="margin-top:12px"><button class="btn" id="add" type="button">+ Add group</button></div>
+    <div class="hint">Changes apply on the next start.</div>
+  </section>
+
+  <section class="panel">
+    <details class="how">
+      <summary>How to read the picture</summary>
+      <p><b>The spike at the start.</b> Buckets start full, so the first requests pass in a burst and the green area rises above the dashed line.</p>
+      <p><b>The flat shelf.</b> Once a bucket is empty, exactly as many requests pass per second as tokens come back. Everything above that gets a 429.</p>
+      <p><b>The queue.</b> A token bucket itself holds no queue: it lets a request through or answers 429. A queue appears on the client side, when a client waits for Retry-After and retries (“wait and retry”). If the client sends faster than the bucket refills, the queue grows and requests wait longer and longer. With “drop the request” there is no queue, and a 429 means a lost request.</p>
+      <p><b>A polite client is not affected.</b> If a client sends less often than tokens return, its requests pass immediately. Every client has its own bucket.</p>
+      <p><b>Shared key and the race.</b> Turn on “shared key” and pick “Redis (naive)”: parallel requests to one bucket read the same value, and more requests pass than should. With “Redis (Lua)” this does not happen.</p>
+    </details>
+  </section>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+
+const PRESETS = {
+  "Polite user and a bot": { capacity: 10, refill: 2, backend: "memory", groups: [
+    { name: "Alice", count: 1, rps: 1, shared_key: false, on_limit: "drop" },
+    { name: "Bob", count: 1, rps: 5, shared_key: false, on_limit: "retry" },
+    { name: "Bot", count: 1, rps: 50, shared_key: false, on_limit: "drop" } ] },
+  "One client, burst": { capacity: 20, refill: 5, backend: "memory", groups: [
+    { name: "Client", count: 1, rps: 100, shared_key: false, on_limit: "drop" } ] },
+  "Crowd and bots": { capacity: 5, refill: 2, backend: "memory", groups: [
+    { name: "Users", count: 200, rps: 1, shared_key: false, on_limit: "drop" },
+    { name: "Bots", count: 5, rps: 100, shared_key: false, on_limit: "drop" } ] },
+  "Redis race": { capacity: 50, refill: 5, backend: "redis-naive", groups: [
+    { name: "Server farm", count: 20, rps: 50, shared_key: true, on_limit: "drop" } ] },
+};
+
+const BACKEND_HINTS = {
+  "memory": "State lives in the memory of one process.",
+  "redis": "A Lua script runs atomically inside Redis.",
+  "redis-naive": "Reads and writes with separate commands: there is a race here.",
+};
+
+const LOG_ROWS = 30;
+const LOG_BUFFER = 300;
+
+let groups = [];
+let history = [];          // cumulative counters for the chart: {t, passed, rejected}
+let lastRejected = [];     // 429s in the previous frame, per group
+let lastClientRejected = []; // same per client: [group][client]
+let logBuf = [];           // latest log events
+let lastSeq = 0;
+let last = null;           // last message from the server
+let running = false;
+
+/* ---------- settings form ---------- */
+
+function renderRows() {
+  const box = $("rows");
+  box.replaceChildren();
+  groups.forEach((g, i) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <div><label>Name</label><input type="text" maxlength="30"></div>
+      <div><label>Clients</label><input type="number" min="1" max="1000" step="1"></div>
+      <div><label>Requests/s</label><input type="number" min="1" max="200" step="1"></div>
+      <div><label>On a 429</label><select>
+        <option value="drop">drop the request</option>
+        <option value="retry">wait and retry</option></select></div>
+      <label class="chk"><input type="checkbox"> shared key</label>
+      <button class="btn icon" type="button" title="Remove group" aria-label="Remove group">✕</button>`;
+    const [name, count, rps] = row.querySelectorAll("input[type=text], input[type=number]");
+    const onLimit = row.querySelector("select");
+    const shared = row.querySelector("input[type=checkbox]");
+    name.value = g.name; count.value = g.count; rps.value = g.rps; onLimit.value = g.on_limit; shared.checked = g.shared_key;
+    name.oninput = () => { g.name = name.value; };
+    count.oninput = () => { g.count = Number(count.value); };
+    rps.oninput = () => { g.rps = Math.round(Number(rps.value)); };
+    rps.onchange = () => { g.rps = Math.min(200, Math.max(1, Math.round(Number(rps.value)) || 1)); rps.value = g.rps; };
+    onLimit.onchange = () => { g.on_limit = onLimit.value; };
+    shared.onchange = () => { g.shared_key = shared.checked; };
+    row.querySelector("button").onclick = () => { groups.splice(i, 1); renderRows(); };
+    box.append(row);
+  });
+}
+
+function applyPreset(p) {
+  $("capacity").value = p.capacity;
+  $("refill").value = p.refill;
+  $("backend").value = p.backend;
+  groups = structuredClone(p.groups);
+  updateBackendHint();
+  renderRows();
+}
+
+function updateBackendHint() { $("backendHint").textContent = BACKEND_HINTS[$("backend").value]; }
+
+function readConfig() {
+  return {
+    capacity: Number($("capacity").value),
+    refill_rate: Number($("refill").value),
+    backend: $("backend").value,
+    groups: groups.map((g) => ({
+      name: g.name.trim() || "Client", count: g.count, rps: g.rps, shared_key: g.shared_key, on_limit: g.on_limit,
+    })),
+  };
+}
+
+function showError(text) { $("error").textContent = text || ""; }
+
+function formatDetail(detail) {
+  if (!Array.isArray(detail)) return String(detail);
+  return detail.map((d) => (d.loc ? d.loc.slice(1).join(" → ") + ": " : "") + (d.msg || "").replace(/^Value error, /, "")).join("\n");
+}
+
+async function start() {
+  showError("");
+  let resp;
+  try {
+    resp = await fetch("/sim/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(readConfig()) });
+  } catch (e) { return showError("Server unavailable"); }
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    return showError(formatDetail(body.detail ?? resp.statusText));
+  }
+  resetRun();
+}
+
+function resetRun() {
+  history = []; lastRejected = []; lastClientRejected = []; logBuf = []; lastSeq = 0;
+  $("log").replaceChildren();
+}
+
+async function stop() { await fetch("/sim/stop", { method: "POST" }).catch(() => {}); }
+
+/* ---------- state from the server ---------- */
+
+function connect() {
+  const es = new EventSource("/sim/stream");
+  es.onopen = () => { $("dot").classList.add("on"); $("connText").textContent = "connected"; };
+  es.onerror = () => { $("dot").classList.remove("on"); $("connText").textContent = "reconnecting…"; };
+  es.onmessage = (e) => onState(JSON.parse(e.data));
+}
+
+const sum = (arr, key) => arr.reduce((s, g) => s + g[key], 0);
+const num = (n) => n.toLocaleString("en");
+
+function onState(m) {
+  last = m;
+  running = !!m.running;
+  $("stop").disabled = !running;
+  const state = $("kState");
+  state.className = "state" + (running ? " run" : "");
+  state.textContent = running ? "running" : m.groups.length ? "stopped" : "not started";
+  if (!m.groups.length) return;
+
+  if (history.length && m.t < history[history.length - 1].t) resetRun();  // a new run has started
+  const passed = sum(m.groups, "passed"), rejected = sum(m.groups, "rejected");
+  if (running || !history.length) history.push({ t: m.t, passed, rejected });
+  while (history.length > 1 && m.t - history[0].t > 40) history.shift();
+
+  $("kTime").textContent = m.t.toFixed(1) + " s";
+  $("kSent").textContent = num(sum(m.groups, "sent"));
+  $("kPassed").textContent = num(passed);
+  $("kWaiting").textContent = num(sum(m.groups, "waiting"));
+  $("kRejected").textContent = num(rejected);
+  // Storage errors go to a separate block: otherwise every frame would erase the form error.
+  $("storageError").textContent = m.errors ? `Storage errors: ${m.errors} (e.g. Redis is unavailable)` : "";
+
+  renderGroups(m);
+  collectEvents(m);
+  renderLog();
+  drawChart();
+}
+
+/* ---------- groups and clients ---------- */
+
+function activeCfg() { return last && last.config ? last.config : readConfig(); }
+
+function ceilingOf(g, cfg) {
+  // How many requests per second the group will let through once the burst is over.
+  const buckets = g.shared ? 1 : g.count;
+  return Math.min(g.count * g.rps, buckets * cfg.refill_rate);
+}
+
+function setNum(el, value, kind) {
+  el.textContent = num(value);
+  el.classList.toggle("zero", value === 0);
+  if (kind) el.classList.toggle(kind, value > 0);
+}
+
+function buildGroup(g) {
+  const el = document.createElement("div");
+  el.className = "group";
+  el.innerHTML = `
+    <div><span class="name"></span><span class="meta"></span></div>
+    <div class="stats">
+      <div class="stat"><div class="v s-sent"></div><div class="l">sent</div></div>
+      <div class="stat"><div class="v s-passed a"></div><div class="l">passed</div></div>
+      <div class="stat"><div class="v s-waiting w"></div><div class="l s-waiting-l">waiting in queue</div></div>
+      <div class="stat"><div class="v s-rejected d"></div><div class="l">429 responses</div></div>
+    </div>
+    <div class="sbar" title="Fate of requests: passed, waiting, lost"><i class="g"></i><i class="y"></i><i class="r"></i></div>
+    <div class="ceiling"></div>`;
+  if (g.count > 1) {
+    const det = document.createElement("details");
+    det.className = "clients"; det.open = true;
+    det.innerHTML = `
+      <summary>Clients in group <span class="cnt"></span></summary>
+      <div class="twrap"><table>
+        <thead><tr><th>Client</th><th>Sent</th><th>Passed</th><th>In queue</th><th>Waiting, s</th><th>429</th></tr></thead>
+        <tbody></tbody></table></div>
+      <div class="more"></div>`;
+    const tbody = det.querySelector("tbody");
+    el._rows = [];
+    for (let i = 0; i < g.shown; i++) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td></td><td></td><td class="a"></td><td class="w"></td><td class="w"></td><td class="d"></td>`;
+      tbody.append(tr);
+      el._rows.push(tr);
+    }
+    el.append(det);
+  }
+  return el;
+}
+
+function renderGroups(m) {
+  const box = $("groups");
+  const cfg = activeCfg();
+  const sig = m.groups.map((g) => [g.name, g.count, g.shared, g.shown, g.on_limit].join(":")).join("|");
+  if (box.dataset.sig !== sig) {
+    box.dataset.sig = sig;
+    box.replaceChildren(...m.groups.map(buildGroup));
+    lastRejected = []; lastClientRejected = [];
+    syncLogGroups(m);
+  }
+
+  m.groups.forEach((g, gi) => {
+    const el = box.children[gi];
+    const policy = g.on_limit === "retry" ? "on a 429 waits and retries" : "on a 429 drops the request";
+    el.querySelector(".name").textContent = g.name;
+    el.querySelector(".meta").textContent =
+      (g.count === 1 ? `${g.rps} req/s` : g.shared ? `${g.count} clients × ${g.rps} req/s, one shared bucket` : `${g.count} clients × ${g.rps} req/s`) +
+      ` · ${policy}`;
+    el.querySelector(".s-sent").textContent = num(g.sent);
+    setNum(el.querySelector(".s-passed"), g.passed);
+    setNum(el.querySelector(".s-waiting"), g.waiting);
+    setNum(el.querySelector(".s-rejected"), g.rejected);
+    el.querySelector(".s-waiting-l").textContent = g.waiting ? `waiting, oldest ${g.oldest.toFixed(1)} s` : "waiting in queue";
+
+    // Fate of requests: passed / waiting / lost (sent, but neither passed nor waiting).
+    const lost = Math.max(0, g.sent - g.passed - g.waiting);
+    const pct = (v) => (g.sent ? (100 * v / g.sent).toFixed(1) : 0) + "%";
+    const [bg, by, br] = el.querySelectorAll(".sbar i");
+    bg.style.width = pct(g.passed); by.style.width = pct(g.waiting); br.style.width = pct(lost);
+
+    const lim = ceilingOf(g, cfg);
+    el.querySelector(".ceiling").textContent = `the limiter will pass at most ${lim.toFixed(lim < 10 ? 1 : 0)} req/s after the burst`;
+    el.classList.toggle("rejecting", running && g.rejected > (lastRejected[gi] ?? 0));
+    lastRejected[gi] = g.rejected;
+
+    if (el._rows) {
+      el.querySelector(".cnt").textContent = `(${g.count})`;
+      el.querySelector(".more").textContent =
+        g.shown < g.count ? `Showing the first ${g.shown} of ${g.count} clients; the group totals above cover all of them.` : "";
+      const prev = (lastClientRejected[gi] ??= []);
+      g.clients.forEach((c, ci) => {
+        const tr = el._rows[ci];
+        tr.children[0].textContent = `${g.name} #${ci + 1}`;
+        tr.children[1].textContent = num(c.sent);
+        tr.children[2].textContent = num(c.passed);
+        tr.children[3].textContent = num(c.waiting);
+        tr.children[4].textContent = c.waiting ? c.oldest.toFixed(1) : "—";
+        tr.children[5].textContent = num(c.rejected);
+        tr.classList.toggle("rej", running && c.rejected > (prev[ci] ?? 0));
+        prev[ci] = c.rejected;
+      });
+    }
+  });
+}
+
+/* ---------- request log ---------- */
+
+function syncLogGroups(m) {
+  const sel = $("logGroup");
+  const current = sel.value;
+  sel.replaceChildren(new Option("All groups", "-1"), ...m.groups.map((g, i) => new Option(g.name, String(i))));
+  sel.value = [...sel.options].some((o) => o.value === current) ? current : "-1";
+}
+
+function collectEvents(m) {
+  if (m.events.length && m.events[m.events.length - 1].seq < lastSeq) { logBuf = []; lastSeq = 0; }
+  const fresh = m.events.filter((e) => e.seq > lastSeq);
+  if (!fresh.length) return;
+  lastSeq = fresh[fresh.length - 1].seq;
+  logBuf.push(...fresh);
+  if (logBuf.length > LOG_BUFFER) logBuf = logBuf.slice(-LOG_BUFFER);
+}
+
+function renderLog() {
+  if ($("pause").checked || !last) return;
+  const filter = Number($("logGroup").value);
+  const rows = [];
+  for (let i = logBuf.length - 1; i >= 0 && rows.length < LOG_ROWS; i--) {
+    const e = logBuf[i];
+    if (filter >= 0 && e.g !== filter) continue;
+    const g = last.groups[e.g];
+    if (!g) continue;
+
+    const tr = document.createElement("tr");
+    const cell = (text) => { const td = document.createElement("td"); td.textContent = text; tr.append(td); return td; };
+    cell(e.t.toFixed(2) + " s");
+    cell(g.count > 1 ? `${g.name} #${e.c + 1}` : g.name);
+    const tag = document.createElement("span");
+    tag.className = "tag s" + e.status; tag.textContent = e.status;
+    cell("").append(tag);
+    cell(e.status === 200
+      ? (e.waited > 0.05 ? `passed, waited in the queue ${e.waited.toFixed(2)} s` : "passed immediately")
+      : g.on_limit === "retry" ? `rejected, retry in ${e.retry_after.toFixed(2)} s (the request stays in the queue)` : "rejected, the request is lost");
+    rows.push(tr);
+  }
+  $("log").replaceChildren(...rows);
+}
+
+/* ---------- chart ---------- */
+
+function rateAt(idx) {
+  // Rate over the last second: counter difference / elapsed time.
+  const cur = history[idx];
+  let j = idx;
+  while (j > 0 && cur.t - history[j].t < 1) j--;
+  const dt = cur.t - history[j].t;
+  if (dt <= 0) return { a: 0, d: 0 };
+  return { a: (cur.passed - history[j].passed) / dt, d: (cur.rejected - history[j].rejected) / dt };
+}
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const f = v / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+
+function drawChart() {
+  const canvas = $("chart");
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+  const L = 46, R = 8, T = 10, B = 24;
+  const pw = W - L - R, ph = H - T - B;
+
+  const cfg = activeCfg();
+  const ceiling = last && last.groups.length ? last.groups.reduce((s, g) => s + ceilingOf(g, cfg), 0) : 0;
+  const pts = history.map((h, i) => ({ t: h.t, ...rateAt(i) }));
+  const tEnd = pts.length ? pts[pts.length - 1].t : 0;
+  const tStart = tEnd - 30;
+  const peak = Math.max(ceiling, ...pts.filter((p) => p.t >= tStart).map((p) => p.a + p.d), 1);
+  const yMax = niceMax(peak * 1.05);
+  const x = (t) => L + ((t - tStart) / 30) * pw;
+  const y = (v) => T + ph - (v / yMax) * ph;
+
+  ctx.font = "11px system-ui, sans-serif";
+  ctx.fillStyle = col("--muted"); ctx.strokeStyle = col("--line"); ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const v = (yMax / 4) * i, yy = Math.round(y(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W - R, yy); ctx.stroke();
+    ctx.fillText(Number.isInteger(v) ? v : v.toFixed(1), L - 6, yy);
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (let s = 0; s <= 30; s += 5) ctx.fillText(`-${30 - s}s`, x(tStart + s), H - B + 6);
+
+  if (pts.length > 1) {
+    const vis = pts.filter((p) => p.t >= tStart - 1);
+    const area = (top, bottom, fill) => {
+      ctx.beginPath();
+      vis.forEach((p, i) => (i ? ctx.lineTo(x(p.t), y(top(p))) : ctx.moveTo(x(p.t), y(top(p)))));
+      for (let i = vis.length - 1; i >= 0; i--) ctx.lineTo(x(vis[i].t), y(bottom(vis[i])));
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+    };
+    const line = (fn, color) => {
+      ctx.beginPath();
+      vis.forEach((p, i) => (i ? ctx.lineTo(x(p.t), y(fn(p))) : ctx.moveTo(x(p.t), y(fn(p)))));
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    };
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+    area((p) => p.a + p.d, (p) => p.a, col("--bad-soft"));
+    area((p) => p.a, () => 0, col("--ok-soft"));
+    line((p) => p.a + p.d, col("--bad"));
+    line((p) => p.a, col("--ok"));
+    ctx.restore();
+  }
+
+  if (ceiling > 0) {
+    ctx.save();
+    ctx.setLineDash([6, 4]); ctx.strokeStyle = col("--ceiling"); ctx.lineWidth = 1.5;
+    const yy = Math.round(y(ceiling)) + .5;
+    ctx.beginPath(); ctx.moveTo(L, yy); ctx.lineTo(W - R, yy); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ---------- start ---------- */
+
+$("add").onclick = () => { groups.push({ name: `Group ${groups.length + 1}`, count: 1, rps: 5, shared_key: false, on_limit: "drop" }); renderRows(); };
+$("start").onclick = start;
+$("stop").onclick = stop;
+$("backend").onchange = updateBackendHint;
+$("logGroup").onchange = renderLog;
+$("pause").onchange = renderLog;
+window.addEventListener("resize", drawChart);
+
+for (const [name, p] of Object.entries(PRESETS)) {
+  const b = document.createElement("button");
+  b.className = "btn chip"; b.type = "button"; b.textContent = name;
+  b.onclick = () => applyPreset(p);
+  $("presets").append(b);
+}
+
+applyPreset(PRESETS["Polite user and a bot"]);
+drawChart();
+connect();
+</script>
+</body>
+</html>
